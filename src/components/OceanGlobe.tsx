@@ -208,10 +208,37 @@ export const OceanGlobe: React.FC<OceanGlobeProps> = ({
     const earthMap = textureLoader.load('/bluemarble-2048_earth.png');
     earthMap.colorSpace = THREE.SRGBColorSpace;
 
+    // Procedural ocean wave micro-bump map for realistic ocean surface texture
+    const waveCanvas = document.createElement('canvas');
+    waveCanvas.width = 256;
+    waveCanvas.height = 256;
+    const waveCtx = waveCanvas.getContext('2d');
+    if (waveCtx) {
+      const wData = waveCtx.createImageData(256, 256);
+      for (let y = 0; y < 256; y++) {
+        for (let x = 0; x < 256; x++) {
+          const w = (Math.sin(x * 0.35 + y * 0.25) * Math.cos(x * 0.25 - y * 0.35) + 1) * 0.5;
+          const idx = (y * 256 + x) * 4;
+          const bVal = Math.floor(w * 255);
+          wData.data[idx] = bVal;
+          wData.data[idx + 1] = bVal;
+          wData.data[idx + 2] = bVal;
+          wData.data[idx + 3] = 255;
+        }
+      }
+      waveCtx.putImageData(wData, 0, 0);
+    }
+    const oceanBumpMap = new THREE.CanvasTexture(waveCanvas);
+    oceanBumpMap.wrapS = THREE.RepeatWrapping;
+    oceanBumpMap.wrapT = THREE.RepeatWrapping;
+    oceanBumpMap.repeat.set(24, 12);
+
     const earthMat = new THREE.MeshStandardMaterial({
       map: earthMap,
-      roughness: 0.85,
-      metalness: 0.02
+      roughness: 0.62,
+      metalness: 0.08,
+      bumpMap: oceanBumpMap,
+      bumpScale: 0.003
     });
     const earthMesh = new THREE.Mesh(earthGeo, earthMat);
     earthGroup.add(earthMesh);
@@ -295,16 +322,17 @@ export const OceanGlobe: React.FC<OceanGlobeProps> = ({
     );
     underwaterGroup.add(domeMesh);
 
-    // Water Surface Ceiling Grid
-    const surfaceMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(16, 16, 40, 40),
-      new THREE.MeshBasicMaterial({
-        color: 0x0b8be2, // 756650
-        transparent: true,
-        opacity: 0.28,
-        side: THREE.DoubleSide
-      })
-    );
+    // Water Surface Ceiling Grid with realistic physical water material
+    const surfaceGeo = new THREE.PlaneGeometry(18, 18, 48, 48);
+    const surfaceMat = new THREE.MeshStandardMaterial({
+      color: 0x0891b2,
+      roughness: 0.15,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.38,
+      side: THREE.DoubleSide
+    });
+    const surfaceMesh = new THREE.Mesh(surfaceGeo, surfaceMat);
     surfaceMesh.rotation.x = -Math.PI / 2;
     surfaceMesh.position.y = 3;
     underwaterGroup.add(surfaceMesh);
@@ -600,12 +628,26 @@ export const OceanGlobe: React.FC<OceanGlobeProps> = ({
         }
       }
 
-      // Underwater drifting particles and light shafts + camera terrain collision prevention
+      // Underwater drifting particles and light shafts + camera terrain collision prevention + surface waves
       if (currentMode === 'underwater') {
         uParticles.rotation.y += 0.0007;
         uParticles.position.y = Math.sin(performance.now() * 0.0003) * 0.12;
         currentsGroup.position.x = Math.sin(performance.now() * 0.00025) * 0.35;
         raysGroup.rotation.z = Math.sin(performance.now() * 0.00015) * 0.025;
+
+        // Animate overhead ocean surface wave displacement
+        const sPos = surfaceGeo.attributes.position;
+        const sTime = performance.now() * 0.0015;
+        for (let i = 0; i < sPos.count; i++) {
+          const u = sPos.getX(i);
+          const v = sPos.getY(i);
+          const w =
+            Math.sin(u * 0.7 + sTime * 1.3) * 0.08 +
+            Math.cos(v * 0.9 + sTime * 1.1) * 0.07 +
+            Math.sin((u + v) * 1.3 + sTime * 1.7) * 0.035;
+          sPos.setZ(i, w);
+        }
+        sPos.needsUpdate = true;
 
         // Prevent camera from unintentionally passing through terrain
         if (seabedGroupRef.current) {
@@ -894,26 +936,44 @@ export const OceanGlobe: React.FC<OceanGlobeProps> = ({
       // Calculate depth at vertex
       const depthAtVertex = Math.max(15, Math.round(actualSeabedDepth - y * 450));
 
-      // Scientific depth hypsometric tint
-      let cr = 0.04, cg = 0.15, cb = 0.35;
-      if (depthAtVertex < 200) {
-        // Continental shelf (turquoise / bright teal)
-        cr = 0.08; cg = 0.74; cb = 0.65;
-      } else if (depthAtVertex < 1000) {
-        // Upper slope (cyan)
-        cr = 0.02; cg = 0.55; cb = 0.82;
-      } else if (depthAtVertex < 2500) {
-        // Continental slope (royal ocean blue)
-        cr = 0.06; cg = 0.38; cb = 0.86;
-      } else if (depthAtVertex < 4200) {
-        // Abyssal rise (deep cobalt)
-        cr = 0.08; cg = 0.22; cb = 0.70;
-      } else if (depthAtVertex < 6000) {
-        // Abyssal plain (midnight navy)
-        cr = 0.04; cg = 0.12; cb = 0.38;
+      // Scientific continuous elevation-based depth gradient
+      let cr = 0.01, cg = 0.03, cb = 0.09;
+      if (depthAtVertex <= 350) {
+        // Highest underwater terrain (0m - 350m): vivid orange to red
+        const t = depthAtVertex / 350;
+        cr = 0.86 + 0.06 * t;
+        cg = 0.15 + 0.20 * t;
+        cb = 0.15 - 0.10 * t;
+      } else if (depthAtVertex <= 1200) {
+        // Shallow underwater plateaus (350m - 1200m): golden orange to yellow
+        const t = (depthAtVertex - 350) / 850;
+        cr = 0.92;
+        cg = 0.35 + 0.37 * t;
+        cb = 0.05;
+      } else if (depthAtVertex <= 2500) {
+        // Elevated seabed and underwater ridges (1200m - 2500m): yellow-green to turquoise
+        const t = (depthAtVertex - 1200) / 1300;
+        cr = 0.92 * (1 - t) + 0.05 * t;
+        cg = 0.72 * (1 - t) + 0.65 * t;
+        cb = 0.04 * (1 - t) + 0.60 * t;
+      } else if (depthAtVertex <= 4500) {
+        // Intermediate depths (2500m - 4500m): turquoise to cyan-blue
+        const t = (depthAtVertex - 2500) / 2000;
+        cr = 0.05 * (1 - t) + 0.01 * t;
+        cg = 0.65 * (1 - t) + 0.45 * t;
+        cb = 0.60 * (1 - t) + 0.82 * t;
+      } else if (depthAtVertex <= 7500) {
+        // Deep ocean floor (4500m - 7500m): royal blue to deep cobalt
+        const t = (depthAtVertex - 4500) / 3000;
+        cr = 0.01 * (1 - t) + 0.06 * t;
+        cg = 0.45 * (1 - t) + 0.18 * t;
+        cb = 0.82 * (1 - t) + 0.42 * t;
       } else {
-        // Hadal trench (ultra-deep indigo/violet)
-        cr = 0.14; cg = 0.05; cb = 0.28;
+        // Deep trenches (7500m - 11000m): deep cobalt to dark navy
+        const t = Math.min(1, (depthAtVertex - 7500) / 3500);
+        cr = 0.06 * (1 - t) + 0.01 * t;
+        cg = 0.18 * (1 - t) + 0.03 * t;
+        cb = 0.42 * (1 - t) + 0.09 * t;
       }
 
       if (colorAttr) {

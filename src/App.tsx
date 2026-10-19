@@ -65,8 +65,8 @@ export default function App() {
   const [selectedRegion, setSelectedRegion] = useState<OceanRegion | null>(null);
 
   // Feature 3: Explore Ocean Floor & Underwater Seabed 3D Bathymetry
-  const [isUnderwater, setIsUnderwater] = useState<boolean>(false);
-  const [verticalExaggeration, setVerticalExaggeration] = useState<number>(2.0);
+  const [isUnderwater, setIsUnderwater] = useState<boolean>(true);
+  const [verticalExaggeration, setVerticalExaggeration] = useState<number>(2.8);
 
   // Feature 4: Time Travel & Historical Storms
   const [selectedStorm, setSelectedStorm] = useState<HistoricalStormPreset | null>(null);
@@ -207,18 +207,18 @@ export default function App() {
               ADVANCED SUITE:
             </span>
 
-            {/* Explore Ocean Floor (Feature 3) */}
+            {/* Explore Ocean Floor / Return to Globe (Feature 3) */}
             <button
               type="button"
               onClick={() => setIsUnderwater(!isUnderwater)}
               className={`px-2.5 py-1 rounded-lg border text-xs font-medium flex items-center gap-1.5 whitespace-nowrap transition-colors ${
                 isUnderwater
-                  ? 'border-emerald-400 bg-emerald-500/25 text-emerald-100 hover:bg-emerald-500/35 font-bold shadow-md shadow-emerald-950/40'
-                  : 'border-cyan-400/40 bg-[#06203d] hover:bg-cyan-500/20 text-cyan-200'
+                  ? 'border-cyan-400 bg-cyan-500/25 text-cyan-100 hover:bg-cyan-500/35 font-bold shadow-md shadow-cyan-950/40'
+                  : 'border-emerald-400/40 bg-[#06203d] hover:bg-emerald-500/20 text-emerald-200'
               }`}
             >
-              <Mountain className="w-3.5 h-3.5 text-cyan-400" />
-              <span>{isUnderwater ? 'Return to Globe' : 'Explore Ocean Floor (Feature 3)'}</span>
+              {isUnderwater ? <Globe className="w-3.5 h-3.5 text-cyan-400" /> : <Mountain className="w-3.5 h-3.5 text-emerald-400" />}
+              <span>{isUnderwater ? 'View 3D Ocean Globe' : 'Explore 3D Ocean Floor (Feature 3)'}</span>
             </button>
 
             <button

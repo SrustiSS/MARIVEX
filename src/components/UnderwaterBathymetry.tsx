@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
-import { ThreeEvent } from '@react-three/fiber';
+import { ThreeEvent, useFrame } from '@react-three/fiber';
 import { BathymetryGridDataset, BathymetricLandmark } from '../utils/bathymetryGridBuilder';
 import { getAccurateSeabedInfo } from '../utils/bathymetryData';
 
@@ -40,56 +40,77 @@ export interface UnderwaterBathymetryProps {
 }
 
 /**
- * Official GEBCO Depth-Based Hypsometric Color Palette:
- * - Shelf Turquoise: #38bdf8 (0m - 200m)
- * - Continental Slope Marine Blue: #0284c7 (200m - 1,500m)
- * - Bathyal Deep Cobalt: #1d4ed8 (1,500m - 4,000m)
- * - Abyssal Plain Midnight Navy: #0f172a (4,000m - 6,000m)
- * - Hadal Trench Deep Violet: #3b0764 (> 6,000m down to 11,000m)
+ * Scientific Elevation-Based Bathymetric Color Mapping:
+ * - Deep ocean trenches (7,500m - 11,000m): Dark navy blue (#020817) to deep cobalt (#0f2b5c)
+ * - Deep ocean floor (4,500m - 7,500m): Cobalt (#1e3a8a) to royal blue (#2563eb)
+ * - Intermediate depths (2,500m - 4,500m): Rich blue (#0284c7) to cyan (#06b6d4)
+ * - Elevated seabed and underwater ridges (1,200m - 2,500m): Turquoise (#0d9488) to emerald green (#16a34a)
+ * - Shallow underwater plateaus (350m - 1,200m): Lime yellow (#84cc16, #eab308) to golden orange (#f59e0b)
+ * - Highest underwater terrain & peaks (0m - 350m): Vivid orange (#ea580c) with crimson red accents (#dc2626)
  */
 export function getGebcoVertexColor(depthMeters: number): THREE.Color {
   const color = new THREE.Color();
   const d = Math.max(0, depthMeters);
 
-  if (d <= 200) {
-    // Continental Shelf (0 - 200m): Shallow turquoise to vibrant cyan
-    const t = d / 200;
+  if (d <= 350) {
+    // Highest underwater terrain (0m - 350m): Crimson red accents to vivid orange
+    const t = d / 350;
     color.setRGB(
-      0.35 + (0.22 - 0.35) * t,
-      0.88 + (0.74 - 0.88) * t,
-      0.98 + (0.97 - 0.98) * t
+      0.86 + (0.92 - 0.86) * t,
+      0.15 + (0.35 - 0.15) * t,
+      0.15 + (0.05 - 0.15) * t
     );
-  } else if (d <= 1500) {
-    // Continental Slope & Shelf Break (200 - 1500m): Cyan to Marine Blue
-    const t = (d - 200) / (1500 - 200);
+  } else if (d <= 1200) {
+    // Shallow underwater plateaus (350m - 1,200m): Orange to golden yellow
+    const t = (d - 350) / (1200 - 350);
     color.setRGB(
-      0.22 + (0.01 - 0.22) * t,
-      0.74 + (0.52 - 0.74) * t,
-      0.97 + (0.78 - 0.97) * t
+      0.92 + (0.92 - 0.92) * t,
+      0.35 + (0.72 - 0.35) * t,
+      0.05 + (0.04 - 0.05) * t
     );
-  } else if (d <= 4000) {
-    // Bathyal Ocean Floor (1500 - 4000m): Marine Blue to Royal Deep Cobalt
-    const t = (d - 1500) / (4000 - 1500);
+  } else if (d <= 2500) {
+    // Elevated seabed & ridges (1,200m - 2,500m): Golden yellow to emerald green & turquoise
+    const t = (d - 1200) / (2500 - 1200);
+    if (t < 0.48) {
+      const subT = t / 0.48;
+      // Golden yellow to emerald green
+      color.setRGB(
+        0.92 + (0.09 - 0.92) * subT,
+        0.72 + (0.64 - 0.72) * subT,
+        0.04 + (0.29 - 0.04) * subT
+      );
+    } else {
+      const subT = (t - 0.48) / 0.52;
+      // Emerald green to bright turquoise
+      color.setRGB(
+        0.09 + (0.05 - 0.09) * subT,
+        0.64 + (0.72 - 0.64) * subT,
+        0.29 + (0.83 - 0.29) * subT
+      );
+    }
+  } else if (d <= 4500) {
+    // Intermediate depths (2,500m - 4,500m): Turquoise to rich marine blue
+    const t = (d - 2500) / (4500 - 2500);
     color.setRGB(
-      0.01 + (0.11 - 0.01) * t,
-      0.52 + (0.31 - 0.52) * t,
-      0.78 + (0.85 - 0.78) * t
+      0.05 + (0.01 - 0.05) * t,
+      0.72 + (0.52 - 0.72) * t,
+      0.83 + (0.78 - 0.83) * t
     );
-  } else if (d <= 6000) {
-    // Abyssal Plain (4000 - 6000m): Royal Cobalt to Midnight Navy
-    const t = (d - 4000) / (6000 - 4000);
+  } else if (d <= 7500) {
+    // Deep ocean floor (4,500m - 7,500m): Royal blue to deep cobalt
+    const t = (d - 4500) / (7500 - 4500);
     color.setRGB(
-      0.11 + (0.06 - 0.11) * t,
-      0.31 + (0.09 - 0.31) * t,
-      0.85 + (0.16 - 0.85) * t
+      0.01 + (0.06 - 0.01) * t,
+      0.52 + (0.17 - 0.52) * t,
+      0.78 + (0.36 - 0.78) * t
     );
   } else {
-    // Hadal Trench (6000 - 11000m): Midnight Navy to Trench Ultra-Violet
-    const t = Math.min(1, (d - 6000) / (11000 - 6000));
+    // Deep ocean trenches (7,500m - 11,000m): Deep cobalt to dark navy
+    const t = Math.min(1, (d - 7500) / (11000 - 7500));
     color.setRGB(
-      0.06 + (0.23 - 0.06) * t,
-      0.09 + (0.03 - 0.09) * t,
-      0.16 + (0.39 - 0.16) * t
+      0.06 + (0.01 - 0.06) * t,
+      0.17 + (0.03 - 0.17) * t,
+      0.36 + (0.09 - 0.36) * t
     );
   }
 
@@ -123,13 +144,14 @@ export const UnderwaterBathymetry: React.FC<UnderwaterBathymetryProps> = ({
   const depthSpan = Math.max(1, maxDepth - minDepth);
 
   // 1. Initial Geometry Generation with Vertex Colors & Normal vectors
-  const { geometry, unscaledYPositions } = useMemo(() => {
+  const { geometry, unscaledYPositions, baseColors } = useMemo(() => {
     const geo = new THREE.BufferGeometry();
     const totalVertices = gridWidth * gridHeight;
 
     const positions = new Float32Array(totalVertices * 3);
     const unscaledY = new Float32Array(totalVertices);
     const colors = new Float32Array(totalVertices * 3);
+    const baseCols = new Float32Array(totalVertices * 3);
 
     const halfW = worldSize.width / 2;
     const halfD = worldSize.depth / 2;
@@ -145,10 +167,9 @@ export const UnderwaterBathymetry: React.FC<UnderwaterBathymetryProps> = ({
         const idx = iy * gridWidth + ix;
         const depthVal = elevations[idx];
 
-        // Normalized Y offset: deeper = lower Y
-        // Scaled to a base world elevation range (-2.4 to 0)
-        const normDepth = (depthVal - minDepth) / depthSpan;
-        const baseElevationY = -normDepth * 2.2;
+        // Normalized elevation: 0 for deepest trench, 1 for highest peak
+        const normElev = 1 - (depthVal - minDepth) / depthSpan;
+        const baseElevationY = (normElev - 0.62) * 3.6;
         unscaledY[idx] = baseElevationY;
 
         const currentY = baseElevationY * verticalExaggeration;
@@ -162,6 +183,10 @@ export const UnderwaterBathymetry: React.FC<UnderwaterBathymetryProps> = ({
         colors[idx * 3] = vertexColor.r;
         colors[idx * 3 + 1] = vertexColor.g;
         colors[idx * 3 + 2] = vertexColor.b;
+
+        baseCols[idx * 3] = vertexColor.r;
+        baseCols[idx * 3 + 1] = vertexColor.g;
+        baseCols[idx * 3 + 2] = vertexColor.b;
       }
     }
 
@@ -185,14 +210,144 @@ export const UnderwaterBathymetry: React.FC<UnderwaterBathymetryProps> = ({
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geo.computeVertexNormals();
 
-    return { geometry: geo, unscaledYPositions: unscaledY };
-  }, [gridWidth, gridHeight, elevations, minDepth, depthSpan, worldSize.width, worldSize.depth]);
+    // Apply scientific cartographic hillshading (NW sun azimuth at 315°, altitude 45°)
+    const lightDir = new THREE.Vector3(-0.48, 0.82, -0.32).normalize();
+    const normalAttr = geo.attributes.normal as THREE.BufferAttribute;
+    const vNorm = new THREE.Vector3();
+
+    for (let i = 0; i < totalVertices; i++) {
+      vNorm.set(normalAttr.getX(i), normalAttr.getY(i), normalAttr.getZ(i));
+      const dot = Math.max(0, vNorm.dot(lightDir));
+      const slope = Math.max(0, Math.min(1, vNorm.y));
+      const depthVal = elevations[i];
+
+      // Depth-dependent ambient occlusion: Hadal trenches receive deep cavernous shadow;
+      // shallow plateaus and elevated ridges receive open-water illumination
+      const depthOcclusion = Math.max(0.42, 1.0 - Math.pow(Math.max(0, (depthVal - 2200) / 8800), 1.25) * 0.58);
+
+      // Direct illumination revealing sharp mountain slopes and ridge crests:
+      const hillshade = 0.44 + dot * 0.68;
+      const slopeShade = 0.62 + slope * 0.38;
+      const factor = Math.min(1.36, hillshade * slopeShade * depthOcclusion);
+
+      colors[i * 3] = Math.min(1, baseCols[i * 3] * factor);
+      colors[i * 3 + 1] = Math.min(1, baseCols[i * 3 + 1] * factor);
+      colors[i * 3 + 2] = Math.min(1, baseCols[i * 3 + 2] * factor);
+    }
+
+    return { geometry: geo, unscaledYPositions: unscaledY, baseColors: baseCols };
+  }, [gridWidth, gridHeight, elevations, minDepth, depthSpan, worldSize.width, worldSize.depth, verticalExaggeration]);
+
+  // Procedural Micro-Relief Bump Map for authentic benthic sediment & basaltic roughness
+  const seabedBumpMap = useMemo(() => {
+    const size = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    const imgData = ctx.createImageData(size, size);
+    const data = imgData.data;
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const u = x / size;
+        const v = y / size;
+
+        // Multi-frequency harmonic noise for benthic sediment dunes & basalt roughness
+        const duneWave = Math.sin(u * 24 + Math.cos(v * 18) * 1.6) * Math.cos(v * 24);
+        const ripples = Math.sin((u * 1.8 + v) * 88) * 0.4;
+        const basaltRough = (Math.sin(u * 180) * Math.cos(v * 180)) * 0.22;
+        const microNoise = (Math.sin(u * 360 + v * 140)) * 0.12;
+
+        const combined = (duneWave * 0.45 + ripples + basaltRough + microNoise + 1) * 0.5;
+        const val = Math.min(255, Math.max(0, Math.floor(combined * 255)));
+
+        const idx = (y * size + x) * 4;
+        data[idx] = val;
+        data[idx + 1] = val;
+        data[idx + 2] = val;
+        data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(6, 6);
+    return texture;
+  }, []);
+
+  // Procedural Animated Caustics Texture
+  const causticsRef = useRef<THREE.Mesh>(null);
+  const causticsTex = useMemo(() => {
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    // Voronoi-like caustic network
+    const points: [number, number][] = [];
+    for (let i = 0; i < 28; i++) {
+      points.push([Math.random() * size, Math.random() * size]);
+    }
+
+    const imgData = ctx.createImageData(size, size);
+    const data = imgData.data;
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        let d1 = Infinity;
+        let d2 = Infinity;
+        for (const [px, py] of points) {
+          const d = Math.hypot(x - px, y - py);
+          if (d < d1) {
+            d2 = d1;
+            d1 = d;
+          } else if (d < d2) {
+            d2 = d;
+          }
+        }
+        const edge = Math.abs(d2 - d1);
+        const causticIntensity = Math.min(255, Math.max(0, Math.floor(Math.exp(-edge * 0.12) * 255)));
+        const idx = (y * size + x) * 4;
+        data[idx] = causticIntensity;
+        data[idx + 1] = Math.floor(causticIntensity * 0.95);
+        data[idx + 2] = causticIntensity;
+        data[idx + 3] = Math.floor(causticIntensity * 0.45);
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(3, 3);
+    return tex;
+  }, []);
+
+  // Animate caustics drift across the seabed
+  useFrame((state) => {
+    const time = state.clock.getElapsedTime();
+    if (causticsTex) {
+      causticsTex.offset.x = time * 0.025;
+      causticsTex.offset.y = Math.sin(time * 0.018) * 0.02;
+    }
+    if (causticsRef.current) {
+      (causticsRef.current.material as THREE.MeshBasicMaterial).opacity = 0.18 + Math.sin(time * 1.6) * 0.04;
+    }
+  });
 
   // 2. Real-time Vertical Exaggeration Slider Updates
   useEffect(() => {
     if (!geometryRef.current) return;
     const posAttr = geometryRef.current.attributes.position as THREE.BufferAttribute;
-    if (!posAttr) return;
+    const colorAttr = geometryRef.current.attributes.color as THREE.BufferAttribute;
+    if (!posAttr || !colorAttr) return;
 
     const totalVertices = gridWidth * gridHeight;
     for (let i = 0; i < totalVertices; i++) {
@@ -202,7 +357,32 @@ export const UnderwaterBathymetry: React.FC<UnderwaterBathymetryProps> = ({
 
     posAttr.needsUpdate = true;
     geometryRef.current.computeVertexNormals();
-  }, [verticalExaggeration, gridWidth, gridHeight, unscaledYPositions]);
+
+    // Re-apply hillshading dynamically as vertical relief changes
+    const normalAttr = geometryRef.current.attributes.normal as THREE.BufferAttribute;
+    const lightDir = new THREE.Vector3(-0.48, 0.82, -0.32).normalize();
+    const vNorm = new THREE.Vector3();
+
+    for (let i = 0; i < totalVertices; i++) {
+      vNorm.set(normalAttr.getX(i), normalAttr.getY(i), normalAttr.getZ(i));
+      const dot = Math.max(0, vNorm.dot(lightDir));
+      const slope = Math.max(0, Math.min(1, vNorm.y));
+      const depthVal = elevations[i];
+
+      const depthOcclusion = Math.max(0.42, 1.0 - Math.pow(Math.max(0, (depthVal - 2200) / 8800), 1.25) * 0.58);
+      const hillshade = 0.44 + dot * 0.68;
+      const slopeShade = 0.62 + slope * 0.38;
+      const factor = Math.min(1.36, hillshade * slopeShade * depthOcclusion);
+
+      colorAttr.setXYZ(
+        i,
+        Math.min(1, baseColors[i * 3] * factor),
+        Math.min(1, baseColors[i * 3 + 1] * factor),
+        Math.min(1, baseColors[i * 3 + 2] * factor)
+      );
+    }
+    colorAttr.needsUpdate = true;
+  }, [verticalExaggeration, gridWidth, gridHeight, unscaledYPositions, baseColors, elevations]);
 
   // 3. Generate Isoline Depth Contour Line Segments
   const contourSegments = useMemo(() => {
@@ -233,8 +413,8 @@ export const UnderwaterBathymetry: React.FC<UnderwaterBathymetryProps> = ({
             const v = iy / (gridHeight - 1);
             const x = -halfW + u * worldSize.width;
             const z = -halfD + v * worldSize.depth;
-            const normD = (contourTarget - minDepth) / depthSpan;
-            const y = -normD * 2.2 * verticalExaggeration + 0.025; // slightly elevated above surface
+            const normElev = 1 - (contourTarget - minDepth) / depthSpan;
+            const y = (normElev - 0.62) * 3.6 * verticalExaggeration + 0.025; // slightly elevated above surface
             linePoints.push(new THREE.Vector3(x, y, z));
           }
 
@@ -245,8 +425,8 @@ export const UnderwaterBathymetry: React.FC<UnderwaterBathymetryProps> = ({
             const v = (iy + t) / (gridHeight - 1);
             const x = -halfW + u * worldSize.width;
             const z = -halfD + v * worldSize.depth;
-            const normD = (contourTarget - minDepth) / depthSpan;
-            const y = -normD * 2.2 * verticalExaggeration + 0.025;
+            const normElev = 1 - (contourTarget - minDepth) / depthSpan;
+            const y = (normElev - 0.62) * 3.6 * verticalExaggeration + 0.025;
             linePoints.push(new THREE.Vector3(x, y, z));
           }
         }
@@ -274,8 +454,8 @@ export const UnderwaterBathymetry: React.FC<UnderwaterBathymetryProps> = ({
 
       const x = -halfW + u * worldSize.width;
       const z = -halfD + v * worldSize.depth;
-      const normD = (lm.depthMeters - minDepth) / depthSpan;
-      const y = -normD * 2.2 * verticalExaggeration + 0.15;
+      const normElev = 1 - (lm.depthMeters - minDepth) / depthSpan;
+      const y = (normElev - 0.62) * 3.6 * verticalExaggeration + 0.15;
 
       return {
         landmark: lm,
@@ -341,12 +521,32 @@ export const UnderwaterBathymetry: React.FC<UnderwaterBathymetryProps> = ({
         <primitive ref={geometryRef} object={geometry} attach="geometry" />
         <meshStandardMaterial
           vertexColors={true}
-          roughness={0.82}
-          metalness={0.06}
+          roughness={0.76}
+          metalness={0.08}
+          bumpMap={seabedBumpMap || undefined}
+          bumpScale={0.065}
           wireframe={showWireframe}
           side={THREE.DoubleSide}
         />
       </mesh>
+
+      {/* Animated Sunlight Caustics Wave Projection on Seafloor */}
+      {causticsTex && (
+        <mesh
+          ref={causticsRef}
+          position={[0, -0.65, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+        >
+          <planeGeometry args={[worldSize.width * 1.05, worldSize.depth * 1.05]} />
+          <meshBasicMaterial
+            map={causticsTex}
+            transparent={true}
+            opacity={0.18}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+          />
+        </mesh>
+      )}
 
       {/* Depth Isoline Contour Line Segments */}
       {showContours && contourSegments && (
